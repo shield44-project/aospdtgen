@@ -5,10 +5,11 @@
 #
 
 from __future__ import annotations
-from aospdtgen.lib.libprop import BuildProp
-from aospdtgen.lib.libvintf.manifest import Manifest
-from aospdtgen.utils.fstab import Fstab, FstabEntry
 from pathlib import Path
+from sebaubuntu_libs.libfstab import Fstab, FstabEntry
+from sebaubuntu_libs.libprop import BuildProp
+from sebaubuntu_libs.libreorder import strcoll_files_key
+from sebaubuntu_libs.libvintf.manifest import Manifest
 
 (
 	BOOTLOADER,
@@ -131,8 +132,13 @@ class AndroidPartition:
 			if self.fstab_entry is not None:
 				return
 
+	def get_files(self):
+		"""Returns the ordered list of files."""
+		self.files.sort(key=strcoll_files_key)
+		return self.files
+
 	def get_formatted_file(self, file: Path):
 		return self.model.proprietary_files_prefix / file.relative_to(self.real_path)
 
 	def get_formatted_files(self):
-		return [self.get_formatted_file(file) for file in self.files]
+		return [self.get_formatted_file(file) for file in self.get_files()]

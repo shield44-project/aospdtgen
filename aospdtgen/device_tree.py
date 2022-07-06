@@ -4,19 +4,23 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from aospdtgen.lib.libprop import BuildProp
+from datetime import datetime
+from os import chmod
+from pathlib import Path
+from sebaubuntu_libs.libfstab import Fstab
+from sebaubuntu_libs.liblogging import LOGI
+from sebaubuntu_libs.libprop import BuildProp
+from sebaubuntu_libs.libreorder import strcoll_files_key
+from shutil import rmtree
+from stat import S_IRWXU, S_IRGRP, S_IROTH
+
 from aospdtgen.proprietary_files.proprietary_files_list import ProprietaryFilesList
 from aospdtgen.templates import render_template
 from aospdtgen.utils.boot_configuration import BootConfiguration
 from aospdtgen.utils.device_info import DeviceInfo
-from aospdtgen.utils.fstab import Fstab
 from aospdtgen.utils.ignored_props import IGNORED_PROPS
 from aospdtgen.utils.partition import PartitionModel
 from aospdtgen.utils.partitions import Partitions
-from aospdtgen.utils.reorder import reorder_key
-from datetime import datetime
-from pathlib import Path
-from shutil import rmtree
 
 class DeviceTree:
 	"""Class representing an Android device tree."""
@@ -26,35 +30,37 @@ class DeviceTree:
 
 		self.current_year = str(datetime.now().year)
 
-		# All files
+		LOGI("Parsing all_files.txt")
 		self.all_files_txt = self.path / "all_files.txt"
-		self.all_files = [file for file in self.all_files_txt.open().read().splitlines()
-		                  if (self.path / file).is_file()]
-		self.all_files = list(dict.fromkeys(self.all_files))
-		self.all_files.sort(key=reorder_key)
+		self.all_files = list(dict.fromkeys(self.all_files_txt.open().read().splitlines()))
 		self.all_files = [self.path / file for file in self.all_files]
+		self.all_files = [file for file in self.all_files if file.is_file()]
+		self.all_files.sort(key=strcoll_files_key)
 
+		LOGI("Figuring out partitions scheme")
 		self.partitions = Partitions(self.path)
 
 		self.system = self.partitions.get_partition(PartitionModel.SYSTEM)
 		self.vendor = self.partitions.get_partition(PartitionModel.VENDOR)
 
-		# Associate files with partitions
+		LOGI("Associating files with partitions")
 		for partition in self.partitions.get_all_partitions():
 			partition.fill_files(self.all_files)
 
-		# Parse build prop and device info
+		LOGI("Parsing build props and device info")
 		self.build_prop = BuildProp()
 		for partition in self.partitions.get_all_partitions():
 			self.build_prop.import_props(partition.build_prop)
 		self.device_info = DeviceInfo(self.build_prop)
 
-		# Parse fstab
-		fstab = None
-		for file in [file for file in self.vendor.files if file.relative_to(self.vendor.real_path).is_relative_to("etc") and file.name.startswith("fstab.")]:
-			if file.is_file():
-				fstab = file
-				break
+		LOGI("Parsing fstab")
+		fstabs = [
+			file for file in self.vendor.files
+			if (file.relative_to(self.vendor.real_path).is_relative_to("etc")
+		        and file.name.startswith("fstab."))
+		]
+		assert fstabs, "No fstab found"
+		fstab = fstabs[0]
 		self.fstab = Fstab(fstab)
 
 		# Let the partitions know their fstab entries if any
@@ -71,19 +77,16 @@ class DeviceTree:
 
 				self.ab_partitions.append(partition_model)
 
-		# Extract boot image
-		self.boot_configuration = BootConfiguration(self.path / "boot.img",
-		                                            self.path / "dtbo.img",
-		                                            self.path / "recovery.img",
-		                                            self.path / "vendor_boot.img")
+		LOGI("Extracting boot image")
+		self.boot_configuration = BootConfiguration(self.path)
 
-		# Get list of rootdir files
+		LOGI("Getting list of rootdir files")
 		self.rootdir_bin_files = [file for file in self.vendor.files
 		                          if file.relative_to(self.vendor.real_path).is_relative_to("bin")
 		                          and file.suffix == ".sh"]
 		self.rootdir_etc_files = [file for file in self.vendor.files
 		                          if file.relative_to(self.vendor.real_path).is_relative_to("etc/init/hw")]
-		
+
 		recovery_resources_location = (self.boot_configuration.recovery_aik_manager.ramdisk_path
 		                               if self.boot_configuration.recovery_aik_manager
 		                               else self.boot_configuration.boot_aik_manager.ramdisk_path)
@@ -91,7 +94,7 @@ class DeviceTree:
 		                                   if file.relative_to(recovery_resources_location).is_relative_to(".")
 		                                   and file.suffix == ".rc"]
 
-		# Generate proprietary files list
+		LOGI("Generating proprietary files list")
 		self.proprietary_files_list = ProprietaryFilesList(self.partitions.get_all_partitions())
 
 	def dump_to_folder(self, folder: Path):
@@ -111,6 +114,10 @@ class DeviceTree:
 		self._render_template(folder, "README.md")
 		self._render_template(folder, "setup-makefiles.sh")
 
+		# Set permissions
+		chmod(folder / "extract-files.sh", S_IRWXU | S_IRGRP | S_IROTH)
+		chmod(folder / "setup-makefiles.sh", S_IRWXU | S_IRGRP | S_IROTH)
+
 		# Proprietary files list
 		(folder / "proprietary-files.txt").write_text(
 				self.proprietary_files_list.get_formatted_list(self.device_info.build_description))
@@ -120,7 +127,7 @@ class DeviceTree:
 			if not partition.build_prop:
 				continue
 
-			(folder / f"{partition.model.name}.prop").write_text(partition.build_prop.get_readable_list(IGNORED_PROPS))
+			partition.build_prop.write_to_file(folder / f"{partition.model.name}.prop", IGNORED_PROPS)
 
 		# Dump boot image prebuilt files
 		prebuilts_path = folder / "prebuilts"
@@ -149,7 +156,7 @@ class DeviceTree:
 		for file in self.rootdir_etc_files + self.rootdir_recovery_etc_files:
 			(rootdir_etc_path / file.name).write_bytes(file.read_bytes())
 
-		(rootdir_etc_path / self.fstab.fstab.name).write_bytes(self.fstab.fstab.read_bytes())
+		(rootdir_etc_path / self.fstab.fstab.name).write_text(self.fstab.format())
 
 		# Manifest
 		(folder / "manifest.xml").write_text(str(self.vendor.manifest))

@@ -1,15 +1,22 @@
-from aospdtgen.lib.libexception import format_exception
-from aospdtgen.lib.liblogging import LOGE
-from aospdtgen.proprietary_files.elf import get_needed_shared_libs, get_shared_libs
-from aospdtgen.proprietary_files.ignore import is_blob_allowed
-from aospdtgen.utils.partition import AndroidPartition
-from aospdtgen.utils.reorder import reorder_key
+#
+# Copyright (C) 2022 The LineageOS Project
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
 from importlib import import_module
 from pathlib import Path
 from pkgutil import iter_modules
 from re import match
+from sebaubuntu_libs.libexception import format_exception
+from sebaubuntu_libs.liblogging import LOGE
+from sebaubuntu_libs.libreorder import strcoll_files_key
+
+from aospdtgen.proprietary_files.elf import get_needed_shared_libs, get_shared_libs
+from aospdtgen.utils.partition import AndroidPartition
 
 class Section:
+	"""Class representing a proprietary files list section."""
 	name: str = "Miscellaneous"
 	"""Name of the section"""
 	interfaces: list[str] = []
@@ -30,21 +37,16 @@ class Section:
 	"""List of basic patterns (use regex)"""
 
 	def __init__(self):
+		"""Initialize the section."""
 		self.files: list[Path] = []
 
 	def add_files(self, partition: AndroidPartition):
 		matched: list[Path] = []
 		not_matched: list[Path] = []
-		ignored: list[Path] = []
 
 		for file in partition.files:
 			file_relative = file.relative_to(partition.real_path)
-			if not is_blob_allowed(file_relative):
-				ignored.append(file)
-			elif self.file_match(file_relative):
-				matched.append(file)
-			else:
-				not_matched.append(file)
+			(matched if self.file_match(file_relative) else not_matched).append(file)
 
 		# Handle shared libs
 		for file in matched:
@@ -66,7 +68,7 @@ class Section:
 						skip = True
 						break
 
-				if lib.removesuffix(".so") in known_shared_libs:
+				if lib.removesuffix(".so") in known_libraries:
 					skip = True
 
 				if skip:
@@ -82,15 +84,19 @@ class Section:
 					not_matched.remove(file)
 					matched.append(file)
 
-		self.files.extend([partition.model.proprietary_files_prefix / file.relative_to(partition.real_path) for file in matched])
-		self.files.sort(key=reorder_key)
+		self.files.extend(
+			partition.model.proprietary_files_prefix / file.relative_to(partition.real_path)
+			for file in matched
+		)
 
-		partition.files.clear()
-		partition.files.extend(not_matched)
-		partition.files.extend(ignored)
-		partition.files.sort(key=reorder_key)
+		partition.files = not_matched
 
 		return not_matched
+
+	def get_files(self):
+		"""Returns the ordered list of files."""
+		self.files.sort(key=strcoll_files_key)
+		return self.files
 
 	def file_match(self, file: Path):
 		if self.name == "Miscellaneous":
@@ -164,22 +170,18 @@ class Section:
 
 sections: list[Section] = []
 known_interfaces: list[str] = []
-known_shared_libs: list[str] = []
+known_libraries: list[str] = []
 
 def register_section(section: Section):
 	sections.append(section)
 
 	for interface in section.interfaces:
-		if interface in known_interfaces:
-			raise Exception(f"Duplicate interface: {interface}")
-
+		assert interface not in known_interfaces, f"Duplicate interface: {interface}"
 		known_interfaces.append(interface)
-	
-	for library in section.libraries:
-		if library in known_shared_libs:
-			raise Exception(f"Duplicate shared lib: {library}")
 
-		known_shared_libs.append(library)
+	for library in section.libraries:
+		assert library not in known_libraries, f"Duplicate shared library: {library}"
+		known_libraries.append(library)
 
 def register_sections(sections_path: Path):
 	"""Import all the sections and let them execute register_section()."""

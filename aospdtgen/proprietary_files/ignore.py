@@ -1,3 +1,9 @@
+#
+# Copyright (C) 2022 The LineageOS Project
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
 from pathlib import Path
 import re
 
@@ -572,6 +578,7 @@ IGNORE_FILENAMES = [
 	# Licenses
 	"NOTICE.xml.gz",
 	"NOTICE_GPL.html.gz",
+	"NOTICE_GPL.xml.gz",
 	"passwd",
 
 	# Recovery patch
@@ -620,6 +627,12 @@ IGNORE_FOLDERS = [
 	"rfs",
 ]
 
+IGNORE_PATHS = [
+	# VINTF
+	"etc/vintf/compatibility_matrix.xml",
+	"etc/vintf/manifest.xml",
+]
+
 IGNORE_PATTERNS = [re.compile(pattern) for pattern in [
 	# Shell scripts
 	"bin/.*\.sh",
@@ -651,6 +664,9 @@ def is_blob_allowed(file: Path) -> bool:
 	for folder in [str(folder) for folder in file.parents]:
 		if folder in IGNORE_FOLDERS:
 			return False
+
+	if str(file) in IGNORE_PATHS:
+		return False
 
 	for pattern in IGNORE_PATTERNS:
 		if pattern.match(str(file)):

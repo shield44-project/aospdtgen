@@ -1,3 +1,9 @@
+#
+# Copyright (C) 2022 The LineageOS Project
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
 from aospdtgen.proprietary_files.section import Section, register_section
 
 class CameraSection(Section):
@@ -25,6 +31,7 @@ class CameraSection(Section):
 	patterns = [
 		"lib(64)?/com.qti.feature2\..*\.so",
 		"lib(64)?/libchromatix_.*\.so",
+		"lib(64)?/libmmcamera_.*\.so",
 	]
 
 class CameraConfigsSection(Section):

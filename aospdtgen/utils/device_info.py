@@ -4,8 +4,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from aospdtgen.lib.libprop import BuildProp, get_partition_props
 from distutils.util import strtobool
+from sebaubuntu_libs.libprop import BuildProp
+from sebaubuntu_libs.libprop.utils import get_partition_props
 
 def get_product_props(value: str):
 	return get_partition_props("ro.product.{}" + value, add_empty=True)
@@ -98,17 +99,17 @@ class DeviceInfo:
 	by using BuildProp class.
 	"""
 
-	def __init__(self, buildprop: BuildProp):
+	def __init__(self, build_prop: BuildProp):
 		"""
 		Parse common build props.
 		"""
-		self.buildprop = buildprop
+		self.build_prop = build_prop
 
 		# Parse props
 		self.codename = self.get_prop(DEVICE_CODENAME)
 		self.manufacturer = self.get_prop(DEVICE_MANUFACTURER).split()[0].lower()
-		self.brand = self.get_prop(DEVICE_BRAND)
-		self.model = self.get_prop(DEVICE_MODEL)
+		self.brand = self.get_prop(DEVICE_BRAND, raise_exception=False)
+		self.model = self.get_prop(DEVICE_MODEL, raise_exception=False)
 		self.build_fingerprint = self.get_prop(BUILD_FINGERPRINT)
 		self.build_description = self.get_prop(BUILD_DESCRIPTION, default=fingerprint_to_description(self.build_fingerprint))
 
@@ -141,7 +142,7 @@ class DeviceInfo:
 	def get_prop(self, props: list, default: str = None, raise_exception: bool = True,
 	             treat_empty_string_as_none: bool = False):
 		for prop in props:
-			prop_value = self.buildprop.get_prop(prop)
+			prop_value = self.build_prop.get_prop(prop)
 			if prop_value is not None and not (treat_empty_string_as_none and not prop_value):
 				return prop_value
 
