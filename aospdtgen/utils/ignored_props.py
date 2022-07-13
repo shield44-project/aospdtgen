@@ -4,9 +4,10 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from sebaubuntu_libs.libprop.utils import get_partition_props
+from sebaubuntu_libs.libandroid.props.utils import get_partition_props
+from typing import List
 
-IGNORED_PROPS: list[str] = []
+IGNORED_PROPS: List[str] = []
 """A list of build props that should be ignored because automatically generated."""
 
 # Build info
